@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NewsLens</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background: #0f1117; color: #e0e0e0; font-family: 'Segoe UI', sans-serif; }
+        .navbar { background: #1a1d27; border-bottom: 1px solid #2a2d3a; }
+        .navbar-brand { color: #7c6fe0 !important; font-weight: 700; font-size: 1.4rem; }
+        .stat-card { background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 12px; padding: 1.5rem; }
+        .stat-number { font-size: 2rem; font-weight: 700; }
+        .positive { color: #4ade80; }
+        .negative { color: #f87171; }
+        .neutral { color: #94a3b8; }
+        .article-card {
+            background: #1a1d27;
+            border: 1px solid #2a2d3a;
+            border-radius: 10px;
+            padding: 1rem 1.25rem;
+            margin-bottom: 0.75rem;
+            transition: border-color 0.2s;
+        }
+        .article-card:hover { border-color: #7c6fe0; }
+        .badge-positive { background: #14532d; color: #4ade80; }
+        .badge-negative { background: #450a0a; color: #f87171; }
+        .badge-neutral { background: #1e293b; color: #94a3b8; }
+        .source-tag { background: #2a2d3a; color: #94a3b8; font-size: 0.75rem; padding: 2px 8px; border-radius: 20px; }
+        .chart-card { background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 12px; padding: 1.5rem; }
+        .filter-btn { background: #2a2d3a; color: #94a3b8; border: none; border-radius: 20px; padding: 4px 14px; font-size: 0.85rem; cursor: pointer; }
+        .filter-btn.active, .filter-btn:hover { background: #7c6fe0; color: #fff; }
+        a { color: #7c6fe0; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .section-title { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: #555; margin-bottom: 1rem; }
+    </style>
+</head>
+<body>
+
+<nav class="navbar px-4 py-3 mb-4">
+    <span class="navbar-brand">🔍 NewsLens</span>
+    <button class="filter-btn" onclick="refreshData()">↻ Refresh</button>
+</nav>
+
+<div class="container-fluid px-4">
+
+    <!-- Stat Cards -->
+    <div class="row g-3 mb-4" id="stat-cards">
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="section-title">Total Articles</div>
+                <div class="stat-number" id="total">—</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="section-title">Positive</div>
+                <div class="stat-number positive" id="positive">—</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="section-title">Negative</div>
+                <div class="stat-number negative" id="negative">—</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="section-title">Neutral</div>
+                <div class="stat-number neutral" id="neutral">—</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <!-- Sentiment Chart -->
+        <div class="col-md-4">
+            <div class="chart-card h-100">
+                <div class="section-title">Sentiment breakdown</div>
+                <canvas id="sentimentChart"></canvas>
+            </div>
+        </div>
+        <!-- Source Chart -->
+        <div class="col-md-8">
+            <div class="chart-card h-100">
+                <div class="section-title">Articles by source</div>
+                <canvas id="sourceChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Articles -->
+    <div class="mb-3 d-flex gap-2 flex-wrap">
+        <button class="filter-btn active" onclick="filterArticles('all', this)">All</button>
+        <button class="filter-btn" onclick="filterArticles('positive', this)">Positive</button>
+        <button class="filter-btn" onclick="filterArticles('negative', this)">Negative</button>
+        <button class="filter-btn" onclick="filterArticles('neutral', this)">Neutral</button>
+    </div>
+
+    <div id="articles-list"></div>
+
+</div>
+
+<script>
+let allArticles = [];
+let sentimentChart, sourceChart;
+
+async function loadStats() {
+    const res = await fetch('/stats');
+    const data = await res.json();
+
+    document.getElementById('total').textContent = data.total_articles;
+    document.getElementById('positive').textContent = data.sentiment.positive;
+    document.getElementById('negative').textContent = data.sentiment.negative;
+    document.getElementById('neutral').textContent = data.sentiment.neutral;
+
+    // Sentiment donut chart
+    if (sentimentChart) sentimentChart.destroy();
+    sentimentChart = new Chart(document.getElementById('sentimentChart'), {
+        type: 'doughnut',
+        data: {
+            labels: ['Positive', 'Negative', 'Neutral'],
+            datasets: [{
+                data: [data.sentiment.positive, data.sentiment.negative, data.sentiment.neutral],
+                backgroundColor: ['#4ade80', '#f87171', '#94a3b8'],
+                borderWidth: 0,
+            }]
+        },
+        options: {
+            plugins: { legend: { labels: { color: '#e0e0e0' } } },
+            cutout: '65%',
+        }
+    });
+
+    // Source bar chart
+    const sources = Object.keys(data.by_source);
+    const counts = Object.values(data.by_source);
+    if (sourceChart) sourceChart.destroy();
+    sourceChart = new Chart(document.getElementById('sourceChart'), {
+        type: 'bar',
+        data: {
+            labels: sources,
+            datasets: [{
+                label: 'Articles',
+                data: counts,
+                backgroundColor: '#7c6fe0',
+                borderRadius: 6,
+            }]
+        },
+        options: {
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { ticks: { color: '#94a3b8' }, grid: { color: '#2a2d3a' } },
+                y: { ticks: { color: '#94a3b8' }, grid: { color: '#2a2d3a' } },
+            }
+        }
+    });
+}
+
+async function loadArticles() {
+    const res = await fetch('/articles');
+    allArticles = await res.json();
+    renderArticles(allArticles);
+}
+
+function renderArticles(articles) {
+    const container = document.getElementById('articles-list');
+    if (articles.length === 0) {
+        container.innerHTML = '<p style="color:#555">No articles found.</p>';
+        return;
+    }
+    container.innerHTML = articles.map(a => {
+        const badge = a.sentiment
+            ? `<span class="badge badge-${a.sentiment} rounded-pill px-2">${a.sentiment} ${a.sentiment_score ? (a.sentiment_score * 100).toFixed(0) + '%' : ''}</span>`
+            : '';
+        return `
+        <div class="article-card">
+            <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+                <a href="${a.url}" target="_blank" style="font-size:0.95rem;font-weight:500;color:#e0e0e0">${a.title}</a>
+                ${badge}
+            </div>
+            <div class="d-flex gap-2 align-items-center mt-1">
+                <span class="source-tag">${a.source}</span>
+                <span style="color:#555;font-size:0.75rem">${a.category}</span>
+                <span style="color:#555;font-size:0.75rem">${a.published_at ? a.published_at.split('T')[0] : ''}</span>
+            </div>
+            ${a.description ? `<p style="color:#666;font-size:0.82rem;margin-top:6px;margin-bottom:0">${a.description}</p>` : ''}
+        </div>`;
+    }).join('');
+}
+
+function filterArticles(sentiment, btn) {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    if (sentiment === 'all') {
+        renderArticles(allArticles);
+    } else {
+        renderArticles(allArticles.filter(a => a.sentiment === sentiment));
+    }
+}
+
+async function refreshData() {
+    await loadStats();
+    await loadArticles();
+}
+
+// Update the index route to serve this template
+refreshData();
+</script>
+
+</body>
+</html>
